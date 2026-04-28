@@ -22,15 +22,23 @@ contract HardForkPosts {
         string mediaHash;
         uint256 totalInvested;
         uint256 timestamp;
-        Comment[] comments;     // New: List of comments
-        Investment[] donors;    // New: List of who gave what
+        Comment[] comments;
+        Investment[] donors;
     }
 
     mapping(uint256 => Post) public posts;
     uint256 public postCount;
 
+    // Restrict sensitive functions to the Splitter contract
+    address public splitter;
+
     constructor(address _treasury) {
         treasury = _treasury;
+    }
+
+    function setSplitter(address _splitter) public {
+        require(splitter == address(0), "Splitter already set");
+        splitter = _splitter;
     }
 
     function createPost(string memory _content, string memory _mediaHash) public {
@@ -48,29 +56,13 @@ contract HardForkPosts {
         posts[_postId].comments.push(Comment(msg.sender, _text, block.timestamp));
     }
 
-    function invest(uint256 _postId) public payable {
-        require(msg.value > 0, "Must invest more than 0");
-        Post storage post = posts[_postId];
+    // This is called by the Splitter to record the donation
+    function updatePostInvestment(uint256 _postId, address _donor, uint256 _amount) external {
+        require(msg.sender == splitter, "Only splitter can update");
+        require(_postId > 0 && _postId <= postCount, "Post doesn't exist");
         
-        uint256 amountToCreator = (msg.value * 95) / 100;
-        uint256 amountToTreasury = msg.value - amountToCreator;
-
-        // Using .call for better compatibility with XDC network & wallets
-        (bool s1, ) = payable(post.author).call{value: amountToCreator}("");
-        require(s1, "Creator pay failed");
-        
-        (bool s2, ) = payable(treasury).call{value: amountToTreasury}("");
-        require(s2, "Treasury pay failed");
-
-        post.totalInvested += msg.value;
-        
-        // Track the donor and amount
-        post.donors.push(Investment(msg.sender, msg.value));
-    }
-
-    // Updated helper to return the data including donors and comments
-    function getPost(uint256 _postId) public view returns (Post memory) {
-        return posts[_postId];
+        posts[_postId].totalInvested += _amount;
+        posts[_postId].donors.push(Investment(_donor, _amount));
     }
 
     function getAllPosts() public view returns (Post[] memory) {

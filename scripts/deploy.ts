@@ -7,7 +7,7 @@ import * as dotenv from "dotenv";
 dotenv.config();
 
 async function main() {
-  console.log("🚀 Starting Manual Viem Deployment...");
+  console.log("🚀 Starting HardFork V2 Deployment...");
 
   // 1. Setup Account & RPC
   const pKey = process.env.XDC_PRIVATE_KEY as `0x${string}`;
@@ -19,12 +19,16 @@ async function main() {
   const walletClient = createWalletClient({ account, chain: xdcTestnet, transport });
   const publicClient = createPublicClient({ chain: xdcTestnet, transport });
 
-  const MY_XDC_ADDRESS = "0x215c2ff021637ebeb98ef836f097a0aef44216c9";
-  console.log(`🏦 Treasury Address: ${MY_XDC_ADDRESS}`);
+  // Your specific Treasury Address
+  const TREASURY_ADDRESS = "0x215c2ff021637ebeb98ef836f097a0aef44216c9";
+  
+  console.log(`🏦 Target Treasury: ${TREASURY_ADDRESS}`);
   console.log(`📡 Deploying from: ${account.address}\n`);
 
-  // Helper function to deploy using Hardhat artifacts but Viem's core client
-  async function deployRaw(contractName: string, args: any[] = []) {
+  /**
+   * Helper to deploy and return address + ABI for linking
+   */
+  async function deployContract(contractName: string, args: any[] = []) {
     console.log(`🛠️  Deploying ${contractName}...`);
     const artifact = await hre.artifacts.readArtifact(contractName);
     
@@ -39,28 +43,44 @@ async function main() {
     
     if (!receipt.contractAddress) throw new Error(`Failed to deploy ${contractName}`);
     console.log(`✅ ${contractName} at: ${receipt.contractAddress}\n`);
-    return receipt.contractAddress;
+    
+    return { address: receipt.contractAddress, abi: artifact.abi };
   }
 
   try {
-    // 1. Registry
-    const registryAddr = await deployRaw("HardForkRegistry");
+    // 1. Deploy Registry
+    const registry = await deployContract("HardForkRegistry");
 
-    // 2. Posts
-    const postsAddr = await deployRaw("HardForkPosts", [MY_XDC_ADDRESS]);
+    // 2. Deploy Posts (Takes Treasury in constructor)
+    const posts = await deployContract("HardForkPosts", [TREASURY_ADDRESS]);
 
-    // 3. Splitter
-    const splitterAddr = await deployRaw("HardForkSplitter", [
-      MY_XDC_ADDRESS,
-      postsAddr
-    ]);
+    // 3. Deploy Splitter (Takes Posts address in constructor)
+    // Note: The Splitter contract you provided has Treasury as a constant, 
+    // so we only pass the posts address here.
+    const splitter = await deployContract("HardForkSplitter", [posts.address]);
+
+    // 4. LINKING STEP
+    // We must tell the Posts contract which Splitter address is allowed 
+    // to call 'updatePostInvestment'
+    console.log("🔗 Linking Posts to Splitter...");
+    const linkHash = await walletClient.writeContract({
+      address: posts.address as `0x${string}`,
+      abi: posts.abi,
+      functionName: 'setSplitter',
+      args: [splitter.address],
+      account
+    });
+
+    await publicClient.waitForTransactionReceipt({ hash: linkHash });
+    console.log("✅ Authorization Complete: Posts now accepts updates from Splitter.\n");
 
     console.log("-----------------------------------------");
-    console.log("🎉 DEPLOYMENT COMPLETE");
-    console.log(`NEXT_PUBLIC_REGISTRY_ADDR=${registryAddr}`);
-    console.log(`NEXT_PUBLIC_POSTS_ADDR=${postsAddr}`);
-    console.log(`NEXT_PUBLIC_SPLITTER_ADDR=${splitterAddr}`);
+    console.log("🎉 DEPLOYMENT SUCCESSFUL");
+    console.log(`NEXT_PUBLIC_REGISTRY_ADDR=${registry.address}`);
+    console.log(`NEXT_PUBLIC_POSTS_ADDR=${posts.address}`);
+    console.log(`NEXT_PUBLIC_SPLITTER_ADDR=${splitter.address}`);
     console.log("-----------------------------------------\n");
+    console.log("Copy these to your .env.local file in the frontend.");
 
   } catch (error) {
     console.error("❌ Deployment Failed:");
