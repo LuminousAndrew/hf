@@ -14,7 +14,7 @@ async function main() {
   if (!pKey) throw new Error("XDC_PRIVATE_KEY missing in .env");
   
   const account = privateKeyToAccount(pKey);
-  const transport = http("https://erpc.apothem.network");
+  const transport = http("https://rpc.ankr.com/xdc");
 
   const walletClient = createWalletClient({ account, chain: xdcTestnet, transport });
   const publicClient = createPublicClient({ chain: xdcTestnet, transport });

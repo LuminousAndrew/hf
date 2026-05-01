@@ -35,7 +35,7 @@ interface PostProps {
 
 export default function VentureCard({ post, userAccount, onRefresh }: PostProps) {
   const [authorHandle, setAuthorHandle] = useState<string>('anonymous');
-  const [amount, setAmount] = useState<string>("10");
+  const [amount, setAmount] = useState<string>("");
   const [commentText, setCommentText] = useState<string>("");
   const [isInvesting, setIsInvesting] = useState(false);
   const [isCommenting, setIsCommenting] = useState(false);

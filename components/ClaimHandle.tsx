@@ -1,7 +1,8 @@
 "use client";
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { getWalletClient, publicClient } from '@/lib/client';
 
+// Added usernameToAddress to the ABI so we can check availability
 const REGISTRY_ABI = [
   {
     name: 'registerProfile',
@@ -12,6 +13,13 @@ const REGISTRY_ABI = [
       { name: '_metadataCID', type: 'string' }
     ],
     outputs: [],
+  },
+  {
+    name: 'usernameToAddress',
+    type: 'function',
+    stateMutability: 'view',
+    inputs: [{ name: '', type: 'string' }],
+    outputs: [{ name: '', type: 'address' }],
   }
 ] as const;
 
@@ -23,11 +31,38 @@ interface ClaimHandleProps {
 export default function ClaimHandle({ account, onSuccess }: ClaimHandleProps) {
   const [username, setUsername] = useState('');
   const [loading, setLoading] = useState(false);
+  const [isAvailable, setIsAvailable] = useState<boolean | null>(null);
+
+  // Check availability as the user types
+  useEffect(() => {
+    const checkAvailability = async () => {
+      if (username.length < 3) {
+        setIsAvailable(null);
+        return;
+      }
+      try {
+        const existingAddress = await publicClient.readContract({
+          address: process.env.NEXT_PUBLIC_REGISTRY_ADDR as `0x${string}`,
+          abi: REGISTRY_ABI,
+          functionName: 'usernameToAddress',
+          args: [username],
+        });
+        // If address is 0x00... it's available
+        setIsAvailable(existingAddress === '0x0000000000000000000000000000000000000000');
+      } catch (e) {
+        setIsAvailable(null);
+      }
+    };
+
+    const debounce = setTimeout(checkAvailability, 400);
+    return () => clearTimeout(debounce);
+  }, [username]);
 
   const claim = async () => {
     if (!username || username.length < 3) return alert("Username too short");
-    setLoading(true);
+    if (isAvailable === false) return alert("This handle is already taken.");
     
+    setLoading(true);
     try {
       const client = await getWalletClient();
       if (!client) return;
@@ -40,15 +75,17 @@ export default function ClaimHandle({ account, onSuccess }: ClaimHandleProps) {
         account: account as `0x${string}`,
       });
 
-      // Wait for the blockchain to confirm the transaction
       await publicClient.waitForTransactionReceipt({ hash });
-      
-      // Trigger the parent UI refresh
       onSuccess();
       alert(`Handle @${username} confirmed on-chain!`);
     } catch (e: any) {
       console.error(e);
-      alert("Error: Handle might be taken or transaction rejected.");
+      // Catch specific Solidity revert error
+      if (e.message.includes("Handle taken")) {
+        alert("Handle taken! Someone just grabbed it.");
+      } else {
+        alert("Transaction failed. Check your XDC balance.");
+      }
     } finally {
       setLoading(false);
     }
@@ -56,26 +93,34 @@ export default function ClaimHandle({ account, onSuccess }: ClaimHandleProps) {
 
   return (
     <div className="bg-zinc-900 p-8 rounded-3xl border border-zinc-800 shadow-2xl">
-      <h3 className="text-2xl font-black mb-2 text-white">Secure Your Identity</h3>
-      <p className="text-zinc-500 mb-6">Choose your unique venture handle on XDC.</p>
+      <h3 className="text-2xl font-black mb-2 text-white italic">HARD FORK ID</h3>
+      <p className="text-zinc-500 mb-6 text-sm uppercase tracking-widest font-bold">Claim your unique venture handle</p>
       
-      <div className="flex flex-col sm:flex-row gap-3">
-        <div className="relative flex-1">
-          <span className="absolute left-4 top-3.5 text-zinc-600 font-bold">@</span>
+      <div className="flex flex-col gap-3">
+        <div className="relative">
+          <span className="absolute left-4 top-4 text-zinc-600 font-bold">@</span>
           <input 
             value={username}
             onChange={(e) => setUsername(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ''))}
-            className="w-full bg-black border border-zinc-800 rounded-2xl py-4 pl-10 pr-4 text-white font-medium focus:border-blue-500 outline-none transition-all"
+            className={`w-full bg-black border rounded-2xl py-4 pl-10 pr-4 text-white font-medium outline-none transition-all ${
+              isAvailable === true ? 'border-green-500' : isAvailable === false ? 'border-red-500' : 'border-zinc-800'
+            }`}
             placeholder="username"
             disabled={loading}
           />
+          {username.length >= 3 && (
+            <div className="absolute right-4 top-4 text-[10px] font-black uppercase italic">
+              {isAvailable === true && <span className="text-green-500">Available</span>}
+              {isAvailable === false && <span className="text-red-500">Taken</span>}
+            </div>
+          )}
         </div>
         <button 
           onClick={claim}
-          disabled={loading || !username}
-          className="bg-blue-600 px-8 py-4 rounded-2xl font-black text-white hover:bg-blue-500 disabled:opacity-50 transition-all shadow-lg shadow-blue-900/20"
+          disabled={loading || !isAvailable}
+          className="bg-white text-black px-8 py-4 rounded-2xl font-black uppercase text-xs tracking-widest hover:bg-blue-600 hover:text-white disabled:opacity-30 transition-all"
         >
-          {loading ? "Claiming..." : "Claim Handle"}
+          {loading ? "Registering..." : "Initialize Identity"}
         </button>
       </div>
     </div>

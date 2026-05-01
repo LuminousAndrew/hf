@@ -10,7 +10,7 @@ export default defineConfig({
       type: "http",
       chainType: "l1",
       // Hardcode the URL for now to avoid the configVariable 'HHE7' error
-      url: "https://erpc.apothem.network", 
+      url: "https://rpc.ankr.com/xdc", 
       accounts: [configVariable("XDC_PRIVATE_KEY")],
     },
   },
